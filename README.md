@@ -1,8 +1,6 @@
 # BOSCH20 Repository
 Authors: Zhuohong (Zooey) He, Israel Barerra, Tyler Spoleti
-
 Contact: zhe17@jhu.edu                                                        
-
 Project Duration: Fall 2019 to Spring 2020
 
 #### Included Files:
