@@ -15,15 +15,16 @@
 #include <MatrixMath.h>
 
 // Hexapod Dimensions [cm, degrees]
-const byte Rp =   15;
-byte       minp = 50;
-const byte Rb =   18;
-byte       minb = 50;
-const byte a =     6;
-const byte s =    18;
+const float Rp =   15;
+float       minp = 50;
+const float Rb =   18;
+float       minb = 50;
+const float a =     6;
+const float s =    18;
 
 // Hexapod Motion Envelope Limitations {x, y, z, thx, thy, thz} [cm, degrees]
 float platformLimits[] = {3, 3, 3, 5, 5, 5};
+const float zorigin = 28;
 
 // Hexapod Limitations [degrees]
 float motorAngleLimits[] = { -30, 90};
@@ -51,7 +52,8 @@ float baseSetup[6][4];
 
 void setup() {
   // Setting Up Pins
-  Serial.begin(115200);
+  Serial.begin(9600);
+  randomSeed(analogRead(A6));
   Serial.println("Setting Up");
   for (int i = 0; i < 6; i++) {
     pinMode(RPWM_OUTPUT[i], OUTPUT);
@@ -60,7 +62,6 @@ void setup() {
     pinMode(LEN_OUTPUT[i],  OUTPUT);
     enableMotor(i);
   }
-
 
   // Converting input units to computationally efficient units
   platformLimits[3] = deg2rad(platformLimits[3]);
@@ -77,10 +78,14 @@ void setup() {
   Serial.println("Finished Set Up, beginning loop now...");
 }
 
+
+
+
 void loop() {
-  unsigned int start = millis();
+  unsigned int start = micros();
   getDesiredEncoderCounts(desiredCounts);
-  Serial.println(millis() - start);
+  Serial.println(micros() - start);
+  while(1);
 }
 
 
@@ -95,11 +100,11 @@ void getDesiredEncoderCounts(int * counts) {
   float p[3];             //NOTE: p is the platform pin in the base frame
   getDesiredPlatformPosition(desiredPlatformPosition);
   calculateRotationMatrix(rot, desiredPlatformPosition);
-
+  
   for (int m = 0; m < 6; m++) {
     calculatePlatformPinWrtBase(p, desiredPlatformPosition, rot, platformSetup[m]);
+    
     float linkageVec[3];
-    vecSub(linkageVec, p, baseSetup[m]);
     float effPistonLen = mag(linkageVec);
     float L = sq(effPistonLen) - (sq(s) - sq(a));
     float M = 2 * a * (p[2] - baseSetup[m][2]);
@@ -125,6 +130,10 @@ void getDesiredPlatformPosition(float * pos) {
   for (int d = 0; d < 6; d++) {
     float JSreading = readJoystick(JS_INPUT[d]);
     pos[d] = platformLimits[d] * JSreading;
+    
+    if (d == 2) {
+      pos[d] += zorigin;
+    }
   }
 }
 
@@ -132,8 +141,9 @@ void getDesiredPlatformPosition(float * pos) {
 /*
    Read's a joystick's value and returns a value from -1.0 to 1.0
 */
-int readJoystick(int pin) {
+float readJoystick(int pin) {
   float JSvalue = analogRead(pin);
+  JSvalue = random(0, 1023);
   JSvalue = (JSvalue - 512) / 512.0;
   return JSvalue;
 }
@@ -197,6 +207,21 @@ float cm2m(float cm) {
   return cm / 100.0;
 }
 
+void printVector(int * vec, int len) {
+  for (int i = 0; i < len; i++) {
+    Serial.print(vec[i]);
+    Serial.print("\t");
+  }
+  Serial.println();
+}
+
+void printVector(float * vec, int len) {
+  for (int i = 0; i < len; i++) {
+    Serial.print(vec[i]);
+    Serial.print("\t");
+  }
+  Serial.println();
+}
 
 // MOTOR CONTROL FUNCTIONS
 void enableMotor(int i) {
