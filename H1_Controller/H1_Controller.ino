@@ -12,8 +12,6 @@
    find the MatrixMath.zip file
 */
 
-#include <MatrixMath.h>
-
 // Hexapod Dimensions [cm, degrees]
 const float Rp =   15;
 float       minp = 50;
@@ -23,7 +21,7 @@ const float a =     6;
 const float s =    18;
 
 // Hexapod Motion Envelope Limitations {x, y, z, thx, thy, thz} [cm, degrees]
-float platformLimits[] = {13, 13, 13, 5, 5, 5};
+float platformLimits[] = {20, 20, 20, 5, 5, 5};
 const float zorigin = 22;
 
 // Hexapod Limitations [degrees]
@@ -31,22 +29,22 @@ float motorAngleLimits[] =  { -30, 90};
 
 
 // Control Loop Characteristics
-const float kp = 3.0; // [V/rad]
-const float kd = 0.4; // [V/(rad/s)]
-const float runsPerRead = 100; // number of control iterations per joystick reading
+const float kp = 4.0; // [V/rad]
+const float kd = 0.01; // [V/(rad/s)]
+const float runsPerRead = 5; // number of control iterations per joystick reading
 
 // Pins to Control BTS7960 Motor Driver
-const byte RPWM_OUTPUT[] = {    0,     4,     6,     8,    10,    12}; // Change first num to 2
-const byte LPWM_OUTPUT[] = {    1,     5,     7,     9,    11,    13}; // Change first num to 3
-const byte REN_OUTPUT[]  = {   22,    23,    24,    25,    26,    27}; // PortA
-const byte LEN_OUTPUT[]  = {   30,    31,    32,    33,    34,    35}; // PortB
-const byte MOTOR_ON[]    = { true,  true,  true,  true,  true,  true}; // Switch motors on to run
+const byte RPWM_OUTPUT[] = {     0,     4,     6,     8,    10,    12}; // Change first num to 2
+const byte LPWM_OUTPUT[] = {     1,     5,     7,     9,    11,    13}; // Change first num to 3
+const byte REN_OUTPUT[]  = {    22,    23,    24,    25,    26,    27}; // PortA
+const byte LEN_OUTPUT[]  = {    30,    31,    32,    33,    34,    35}; // PortB
+const byte MOTOR_ON[]    = { false,  true, false, false, false, false}; // Switch motors on to run
 
 // Pins to Read Potentiometers on Joystick
 const byte JS_INPUT[] = {A0, A1, A2, A3, A4, A5};
 
 // Encoder Specifications
-const int countsPerRev = 600;
+// const int countsPerRev = 600;
 
 // Variables what we update while running
 float desiredCounts[6];
@@ -61,11 +59,15 @@ float platformSetup[6][4];
 float baseSetup[6][4];
 
 // TESTING VARIABLES: DELETE SOON
+volatile int pololuCount = 0;
+const int countsPerRev = 34*12*4;
 
 void setup() {
   // Setting Up Pins
   Serial.begin(9600);
-  randomSeed(analogRead(A6));
+  pinMode(A0, INPUT);
+  pinMode(A1, INPUT);
+  pinMode(A2, INPUT);
   Serial.println("Setting Up");
   for (int i = 0; i < 6; i++) {
     pinMode(RPWM_OUTPUT[i], OUTPUT);
@@ -89,6 +91,12 @@ void setup() {
   getMotorsWrtBase();
   Serial.println("Finished Set Up, beginning loop now...");
 
+  // SETTING UP TESTING VARIABLES
+  pinMode(2, INPUT);
+  pinMode(3, INPUT);
+  attachInterrupt(0, chA, CHANGE);
+  attachInterrupt(1, chB, CHANGE);
+
   lastFinish = micros();
   getCurrentCounts(lastCounts);
 }
@@ -98,22 +106,17 @@ void setup() {
 
 void loop() {
   getDesiredEncoderCounts(desiredCounts);
-  printVector(desiredCounts, 6);
   controlled_move(desiredCounts, lastFinish, lastCounts, currentCounts, MOTOR_ON, runsPerRead);
 }
-
 
 boolean controlled_move(float desired[6], long lastEnd[6], float lastCnts[6], float current[6], byte motorOn[6], unsigned int iterations) {
   float error[6]; // The error in counts
   long start;
   int elapsedTime;
-  int elapsedCounts;
-  int ctrlSig = 0;
+  float elapsedCounts;
+  float ctrlSig = 0;
 
   for (int n = 0; n < iterations; n++) {
-    
-
-    
     for (int m = 0; m < 6; m++) {
       
       if (motorOn[m] == false) {
@@ -130,9 +133,9 @@ boolean controlled_move(float desired[6], long lastEnd[6], float lastCnts[6], fl
 
       error[m] = desired[m] - current[m];
       
-      ctrlSig = kp * 2 * PI * error[m] / countsPerRev + kd * 2 * PI * elapsedCounts / elapsedTime * 1000000;
+      ctrlSig = kp * 2 * PI * error[m] / countsPerRev + kd * 2 * PI * elapsedCounts / countsPerRev / elapsedTime * 1000000;
       unsigned int PWMvalue = (int)constrain(abs(ctrlSig / 5 * 255), 0, 255);
-      
+
       if (ctrlSig > 0) {
         analogWrite(LPWM_OUTPUT[m], 0);
         analogWrite(RPWM_OUTPUT[m], PWMvalue);
@@ -158,8 +161,8 @@ float getCount(int motor) {
 }
 
 float getCountTESTING(float count, int motor) {
-  // TODO: Implement this method to read i2c from LS7366 Shield
-  return count + (desiredCounts[motor] - count) / (10.0 - kp);
+  // return count + (desiredCounts[motor] - count) / (10.0 - kp);
+  return pololuCount;
 }
 
 /*
@@ -182,6 +185,7 @@ void getDesiredEncoderCounts(float * counts) {
     float N = 2 * a * ((p[0] - baseSetup[m][0]) * cos(baseSetup[m][3]) + (p[1] - baseSetup[m][1]) * sin(baseSetup[m][3]));
 
     float alpha = asin(L / sqrt(sq(M) + sq(N)) - atan(N / M));
+    
 
     if (m % 2 == 0) {  // If we have an odd numbered motor, invert angle. TODO: Test this, may need to swap 0 for 1
       counts[m] = -alpha / 2 / PI * countsPerRev;
@@ -206,6 +210,7 @@ void getDesiredPlatformPosition(float * pos) {
       pos[d] += zorigin;
     }
   }
+  Serial.println();
 }
 
 
@@ -214,8 +219,10 @@ void getDesiredPlatformPosition(float * pos) {
 */
 float readJoystick(int pin) {
   float JSvalue = analogRead(pin);
-  // JSvalue = random(0, 1023);
+  Serial.print(JSvalue);
+  Serial.print(" ");
   JSvalue = (JSvalue - 512) / 512.0;
+  
   return JSvalue;
 }
 
@@ -304,6 +311,25 @@ void enableMotor(int i) {
 void disableMotor(int i) {
   digitalWrite(REN_OUTPUT[i], LOW);
   digitalWrite(LEN_OUTPUT[i], LOW);
+}
+
+// Interrupt functions for keeping track of the encoder
+void chA () {
+  if (digitalRead(2) != digitalRead(3)) {
+    pololuCount++;
+  }
+  else {
+    pololuCount--;
+  }
+}
+
+void chB () {
+  if (digitalRead(2) == digitalRead(3)) {
+    pololuCount++;
+  }
+  else {
+    pololuCount--;
+  }
 }
 
 // FUNCTIONS USED TO SET UP THE SYSTEM
