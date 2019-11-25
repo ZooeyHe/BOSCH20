@@ -7,7 +7,7 @@
    Author: Zhuohong (Zooey) He
    Date: 11.21.2019
    ==========================================
-   NOTE: For use on an Arduino Mega
+   NOTE: For use on an Arduino Mega, LS7633 Shield, Datalogger Shield
    make sure to do "Sketch->Include Library-> Add .ZIP Library" and
    find the MatrixMath.zip file
 */
@@ -23,17 +23,24 @@ const float a =     6;
 const float s =    18;
 
 // Hexapod Motion Envelope Limitations {x, y, z, thx, thy, thz} [cm, degrees]
-float platformLimits[] = {3, 3, 3, 5, 5, 5};
-const float zorigin = 28;
+float platformLimits[] = {13, 13, 13, 5, 5, 5};
+const float zorigin = 22;
 
 // Hexapod Limitations [degrees]
-float motorAngleLimits[] = { -30, 90};
+float motorAngleLimits[] =  { -30, 90};
+
+
+// Control Loop Characteristics
+const float kp = 3.0; // [V/rad]
+const float kd = 0.4; // [V/(rad/s)]
+const float runsPerRead = 100; // number of control iterations per joystick reading
 
 // Pins to Control BTS7960 Motor Driver
-const byte RPWM_OUTPUT[] = {  2,  4,  6,  8, 10, 12};
-const byte LPWM_OUTPUT[] = {  3,  5,  7,  9, 11, 13};
-const byte REN_OUTPUT[]  = { 22, 23, 24, 25, 26, 27}; // PortA
-const byte LEN_OUTPUT[]  = { 30, 31, 32, 33, 34, 35}; // PortB
+const byte RPWM_OUTPUT[] = {    0,     4,     6,     8,    10,    12}; // Change first num to 2
+const byte LPWM_OUTPUT[] = {    1,     5,     7,     9,    11,    13}; // Change first num to 3
+const byte REN_OUTPUT[]  = {   22,    23,    24,    25,    26,    27}; // PortA
+const byte LEN_OUTPUT[]  = {   30,    31,    32,    33,    34,    35}; // PortB
+const byte MOTOR_ON[]    = { true,  true,  true,  true,  true,  true}; // Switch motors on to run
 
 // Pins to Read Potentiometers on Joystick
 const byte JS_INPUT[] = {A0, A1, A2, A3, A4, A5};
@@ -42,13 +49,18 @@ const byte JS_INPUT[] = {A0, A1, A2, A3, A4, A5};
 const int countsPerRev = 600;
 
 // Variables what we update while running
-int desiredCounts[6];
+float desiredCounts[6];
+float currentCounts[6];
+long lastFinish;
+float lastCounts[6];
 
 // Platform Pin Positions wrt Platform Coordinates {x, y, z, thz}
 float platformSetup[6][4];
 
 // Base Motor Positions wrt Base Coordinates {x, y, z, thz}
 float baseSetup[6][4];
+
+// TESTING VARIABLES: DELETE SOON
 
 void setup() {
   // Setting Up Pins
@@ -76,42 +88,101 @@ void setup() {
   getPinsWrtPlatform();
   getMotorsWrtBase();
   Serial.println("Finished Set Up, beginning loop now...");
+
+  lastFinish = micros();
+  getCurrentCounts(lastCounts);
 }
 
 
 
 
 void loop() {
-  unsigned int start = micros();
   getDesiredEncoderCounts(desiredCounts);
-  Serial.println(micros() - start);
-  while(1);
+  printVector(desiredCounts, 6);
+  controlled_move(desiredCounts, lastFinish, lastCounts, currentCounts, MOTOR_ON, runsPerRead);
 }
 
 
+boolean controlled_move(float desired[6], long lastEnd[6], float lastCnts[6], float current[6], byte motorOn[6], unsigned int iterations) {
+  float error[6]; // The error in counts
+  long start;
+  int elapsedTime;
+  int elapsedCounts;
+  int ctrlSig = 0;
 
+  for (int n = 0; n < iterations; n++) {
+    
+
+    
+    for (int m = 0; m < 6; m++) {
+      
+      if (motorOn[m] == false) {
+        continue;
+      }
+      
+      start = micros();
+      elapsedTime = start - lastEnd[m];
+      lastEnd[m] = start;
+
+      current[m] = getCount(m);
+      elapsedCounts = current[m] - lastCnts[m];
+      lastCnts[m] = current[m];
+
+      error[m] = desired[m] - current[m];
+      
+      ctrlSig = kp * 2 * PI * error[m] / countsPerRev + kd * 2 * PI * elapsedCounts / elapsedTime * 1000000;
+      unsigned int PWMvalue = (int)constrain(abs(ctrlSig / 5 * 255), 0, 255);
+      
+      if (ctrlSig > 0) {
+        analogWrite(LPWM_OUTPUT[m], 0);
+        analogWrite(RPWM_OUTPUT[m], PWMvalue);
+      } else if (ctrlSig < 0) {
+        analogWrite(LPWM_OUTPUT[m], PWMvalue);
+        analogWrite(RPWM_OUTPUT[m], 0);
+      }
+    }
+  }
+  return true;
+}
+
+void getCurrentCounts(float counts[6]) {
+  for (int m = 0; m < 6; m++) {
+    counts[m] = getCount(m); 
+  }
+}
+
+
+float getCount(int motor) {
+  // TODO: Implement this method to read i2c from LS7366 Shield
+  return getCountTESTING(currentCounts[motor], motor);
+}
+
+float getCountTESTING(float count, int motor) {
+  // TODO: Implement this method to read i2c from LS7366 Shield
+  return count + (desiredCounts[motor] - count) / (10.0 - kp);
+}
 
 /*
    Calculate the desired encoder counts from desired platform position
 */
-void getDesiredEncoderCounts(int * counts) {
+void getDesiredEncoderCounts(float * counts) {
   float desiredPlatformPosition[6];
   float rot[3][3];
   float p[3];             //NOTE: p is the platform pin in the base frame
   getDesiredPlatformPosition(desiredPlatformPosition);
   calculateRotationMatrix(rot, desiredPlatformPosition);
-  
+
   for (int m = 0; m < 6; m++) {
     calculatePlatformPinWrtBase(p, desiredPlatformPosition, rot, platformSetup[m]);
-    
+
     float linkageVec[3];
     float effPistonLen = mag(linkageVec);
     float L = sq(effPistonLen) - (sq(s) - sq(a));
     float M = 2 * a * (p[2] - baseSetup[m][2]);
     float N = 2 * a * ((p[0] - baseSetup[m][0]) * cos(baseSetup[m][3]) + (p[1] - baseSetup[m][1]) * sin(baseSetup[m][3]));
 
-    float alpha = asin(L/sqrt(sq(M)+sq(N))-atan(N/M));
-    
+    float alpha = asin(L / sqrt(sq(M) + sq(N)) - atan(N / M));
+
     if (m % 2 == 0) {  // If we have an odd numbered motor, invert angle. TODO: Test this, may need to swap 0 for 1
       counts[m] = -alpha / 2 / PI * countsPerRev;
     } else {
@@ -130,7 +201,7 @@ void getDesiredPlatformPosition(float * pos) {
   for (int d = 0; d < 6; d++) {
     float JSreading = readJoystick(JS_INPUT[d]);
     pos[d] = platformLimits[d] * JSreading;
-    
+
     if (d == 2) {
       pos[d] += zorigin;
     }
@@ -143,7 +214,7 @@ void getDesiredPlatformPosition(float * pos) {
 */
 float readJoystick(int pin) {
   float JSvalue = analogRead(pin);
-  JSvalue = random(0, 1023);
+  // JSvalue = random(0, 1023);
   JSvalue = (JSvalue - 512) / 512.0;
   return JSvalue;
 }
@@ -152,7 +223,7 @@ float readJoystick(int pin) {
 void calculatePlatformPinWrtBase(float * pins, float * platformPos, float rotMat[3][3], float * pinWrtPlatform) {
   float rotatedVec[3];
   matmulvec(rotatedVec, rotMat, pinWrtPlatform);
-  vecAdd(pins, platformPos, rotatedVec);
+  vecAdd(pins, platformPos, rotatedVec, 3);
 }
 
 
@@ -183,17 +254,18 @@ void matmulvec(float * result, float mat[3][3], float * vec) {
   }
 }
 
-void vecAdd(float * result, float * vec1, float * vec2) {
-  result[0] = vec1[0] + vec2[0];
-  result[1] = vec1[1] + vec2[1];
-  result[2] = vec1[2] + vec2[2];
+void vecAdd(float * result, float * vec1, float * vec2, int len) {
+  for (int i = 0; i < len; i++) {
+    result[i] = vec1[i] + vec2[i];
+  }
 }
 
-void vecSub(float * result, float * vec1, float * vec2) {
-  result[0] = vec1[0] - vec2[0];
-  result[1] = vec1[1] - vec2[1];
-  result[2] = vec1[2] - vec2[2];
+void vecSub(float * result, float * vec1, float * vec2, int len) {
+  for (int i = 0; i < len; i++) {
+    result[i] = vec1[i] - vec2[i];
+  }
 }
+
 
 float mag(float * vector) {
   return sqrt(sq(vector[0]) + sq(vector[1]) + sq(vector[2]));
