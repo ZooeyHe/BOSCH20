@@ -238,6 +238,9 @@ void loop() {
       desiredCounts == stepSize;
     }
   } else if (digitalRead(endButton) == LOW) {
+    Serial.println(kp);
+    Serial.println(ki);
+    Serial.println(kd);
     while(true){}
   }
 }
