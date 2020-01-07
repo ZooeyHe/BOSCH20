@@ -30,10 +30,9 @@ int stepButton = 21;
 int endButton =  20;
 
 // Pins to Control BTS7960 Motor Driver
-const byte RPWM_OUTPUT = 4; //
-const byte LPWM_OUTPUT = 5; //
-const byte REN_OUTPUT  = 22; // PortA
-const byte LEN_OUTPUT  = 23; // PortB
+const byte RPWM_OUTPUT = 22; //
+const byte LPWM_OUTPUT = 23; //
+const byte EN_OUTPUT  = 4; // 
 
 // Encoder Specifications
 const int countsPerRev = 600; // if 4x multiply this number by 4
@@ -224,11 +223,13 @@ void loop() {
   unsigned int PWMvalue = (int) constrain(abs(ctrlSig / 5 * 255), 0, 200); // Constrained for safety, usually goes to 255
 
   if (ctrlSig < 0) {
-    analogWrite(LPWM_OUTPUT, 0);
-    analogWrite(RPWM_OUTPUT, PWMvalue);
+    analogWrite(EN_OUTPUT, PWMvalue);
+    digitalWrite(RPWM_OUTPUT, HIGH);
+    digitalWrite(LPWM_OUTPUT, LOW);
   } else if (ctrlSig > 0) {
-    analogWrite(LPWM_OUTPUT, PWMvalue);
-    analogWrite(RPWM_OUTPUT, 0);
+    analogWrite(EN_OUTPUT, PWMvalue);
+    digitalWrite(RPWM_OUTPUT, LOW);
+    digitalWrite(LPWM_OUTPUT, HIGH);
   }
 
   if (digitalRead(stepButton) == LOW) {
@@ -545,8 +546,8 @@ void printVector(long * vec, int len) {
 
 // MOTOR CONTROL FUNCTIONS
 void enableMotor() {
-  digitalWrite(REN_OUTPUT, HIGH);
-  digitalWrite(LEN_OUTPUT, HIGH);
+  digitalWrite(RPWM_OUTPUT, LOW);
+  digitalWrite(LPWM_OUTPUT, LOW);
 }
 
 void disableMotor(int i) {
