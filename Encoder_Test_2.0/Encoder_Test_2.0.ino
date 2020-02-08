@@ -8,13 +8,13 @@
 
 
 // Control Loop Characteristics
-const float kp = 2.5; // [V/rad]
-const float ki = 2.0; // [V/(rad*s)]
+const float kp = 8.0; // [V/rad]
+const float ki = 32.0; // [V/(rad*s)]
 const float kd = 0.0; // [V/(rad/s)]
 
 // Pins to Control BTS7960 Motor Driver
 const byte mn = 6; //Use this to select which motor setup to use
-const int  speedLimit = 200; //Select a value from 0 to 255
+const int  speedLimit = 255; //Select a value from 0 to 255
 
 const byte PWM[] = {     6,     7,     8,     9,    10,    11}; // PWM PIN
 const byte DIR[] = {    22,    23,    24,    25,    26,    27}; // Direction PIN
@@ -209,10 +209,10 @@ void loop() {
       //Serial.println("revButton pressed");
       spinDirection = spinDirection * -1;
       lastButtonPress = micros();
-      while(true){
-        analogWrite(DRIVER_PWM, 0);
-        delay(10);
-      }
+      //while(true){
+        //analogWrite(DRIVER_PWM, 0);
+        //delay(10);
+      //}
     } else if (digitalRead(stepButton) == LOW) {
       //Serial.println("stepButton Pressed");
       desiredCount = desiredCount + spinDirection*rad2counts(deg2rad(stepAngleDeg), countsPerRev);
@@ -220,9 +220,9 @@ void loop() {
     }
   }
 
-  Serial.print(currentCount);
-  Serial.print(" ");
-  Serial.println(desiredCount);
+  //Serial.print(currentCount);
+  //Serial.print(" ");
+  //Serial.println(desiredCount);
   //Serial.println(currentSense());
   //Serial.println("A");
   //Serial.println(error);
@@ -243,7 +243,7 @@ void loop() {
   float ctrlSig = kp * counts2rad(error, countsPerRev) + kd * counts2rad(de_dt, countsPerRev) + ki * counts2rad(intError, countsPerRev);
   unsigned int PWMvalue = (int) constrain(abs(ctrlSig / 5 * 255), 0, speedLimit);
   //Serial.println(ctrlSig);
-  //Serial.println(PWMvalue);
+  Serial.println(PWMvalue);
   //Serial.println((int) constrain((ctrlSig / 5 * 255), 0, speedLimit));
   if (ctrlSig < 0) {
     //analogWrite(DRIVER_PWM, 0);
@@ -260,9 +260,9 @@ long getCount() {
   // TODO: Implement this method to read i2c from LS7366 Shield
   long result = getChanEncoderValue(mn);
   if (mn % 2 == 1) {
-    result = result - 90 / 360.0 * countsPerRev;
+    result = result;// - 90 / 360.0 * countsPerRev;
   } else {
-    result = result + 90 / 360.0 * countsPerRev;
+    result = result;// + 90 / 360.0 * countsPerRev;
   }
   return result;
 }
@@ -329,16 +329,19 @@ void Init_LS7366Rs(void)
     SPI.transfer(LOAD_CNTR);
     setSSEnc(DISABLE, 0);
 
-    Serial.print(" Ch");
-    Serial.print(a);
-    Serial.print("=");
-    Serial.print(getChanEncoderValue(a), HEX);
-    Serial.print(";");
+    
     //********
     //********
     setSSEnc(ENABLE, a);
     SPI.transfer(CLR_CNTR);// Select CNTR || CLEAR register
     setSSEnc(DISABLE, 0);
+
+
+    Serial.print(" Ch");
+    Serial.print(a);
+    Serial.print("=");
+    Serial.print(getChanEncoderValue(a), HEX);
+    Serial.print(";");
     //********
     //********
     clearStrReg(a);   //reseting the counter value inside the encoder chips to 0
