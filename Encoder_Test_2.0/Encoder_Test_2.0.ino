@@ -8,20 +8,20 @@
 
 
 // Control Loop Characteristics
-const float kp = 8.0; // [V/rad]
-const float ki = 32.0; // [V/(rad*s)]
-const float kd = 0.0; // [V/(rad/s)]
+const float kp = 9.5; // [V/rad]
+const float ki = 10.0; // [V/(rad*s)]
+const float kd = 0.08; // [V/(rad/s)]
 
 // Pins to Control BTS7960 Motor Driver
-const byte mn = 6; //Use this to select which motor setup to use
+const byte mn = 2; //Use this to select which motor setup to use
 const int  speedLimit = 255; //Select a value from 0 to 255
 
 const byte PWM[] = {     6,     7,     8,     9,    10,    11}; // PWM PIN
 const byte DIR[] = {    22,    23,    24,    25,    26,    27}; // Direction PIN
 const byte CS[]  = {    A0,    A1,    A2,    A3,    A4,    A5}; // Current Sense
-const byte DRIVER_CS  = CS[mn-1];
-const byte DRIVER_PWM = PWM[mn-1];
-const byte DRIVER_DIR = DIR[mn-1];
+const byte DRIVER_CS  = CS[mn - 1];
+const byte DRIVER_PWM = PWM[mn - 1];
+const byte DRIVER_DIR = DIR[mn - 1];
 
 // Encoder Specifications
 const int countsPerRev = 600; // if 4x multiply this number by 4
@@ -155,7 +155,7 @@ void setup() {
   pinMode(DRIVER_PWM, OUTPUT);
   pinMode(DRIVER_DIR, OUTPUT);
   pinMode(DRIVER_CS, INPUT);
-  
+
   int myEraser = 7;
   int myPrescaler = 1;
   TCCR4B &= ~myEraser; //Pins 8, 7, 6
@@ -165,8 +165,8 @@ void setup() {
   TCCR4B |= myPrescaler;
   TCCR2B |= myPrescaler;
   TCCR1B |= myPrescaler;
-  
-  
+
+
   //Serial.println("... Finished Setting Up Motor Control ...");
 
   pinMode(LED_ACT_pin, OUTPUT);
@@ -184,10 +184,12 @@ void setup() {
   pinMode(DFLAG_pin, INPUT);
   pinMode(LFLAG_pin, INPUT_PULLUP);
   delay(1000);
-  
+
   Init_LS7366Rs();
   //Serial.println("... Finished Setting Up Encoder Shield ...");
-  while (digitalRead(startpin) == HIGH) {delay(10);}
+  while (digitalRead(startpin) == HIGH) {
+    delay(10);
+  }
   //Serial.println("... Starting ...");
   lastStart = micros();
   lastButtonPress = micros();
@@ -210,24 +212,33 @@ void loop() {
       spinDirection = spinDirection * -1;
       lastButtonPress = micros();
       //while(true){
-        //analogWrite(DRIVER_PWM, 0);
-        //delay(10);
+      //analogWrite(DRIVER_PWM, 0);
+      //delay(10);
       //}
     } else if (digitalRead(stepButton) == LOW) {
       //Serial.println("stepButton Pressed");
-      desiredCount = desiredCount + spinDirection*rad2counts(deg2rad(stepAngleDeg), countsPerRev);
+      desiredCount = desiredCount + spinDirection * rad2counts(deg2rad(stepAngleDeg), countsPerRev);
+      Serial.print(10);
+      Serial.print(" ");
       lastButtonPress = micros();
+    } else {
+      Serial.print(0);
+      Serial.print(" ");
     }
+  } else {
+    Serial.print(0);
+    Serial.print(" ");
   }
 
   //Serial.print(currentCount);
   //Serial.print(" ");
   //Serial.println(desiredCount);
-  //Serial.println(currentSense());
+  Serial.println(currentSense());
   //Serial.println("A");
   //Serial.println(error);
   long start = micros();
   float dt = start - lastStart;
+  //Serial.println(dt);
   dt = dt / 1000000.0;
   lastStart = start;
 
@@ -236,15 +247,15 @@ void loop() {
   long derror = error - lastError;
   lastError = error;
 
-  float de_dt = derror * 1.0/dt;
+  float de_dt = derror * 1.0 / dt;
 
-  intError = intError + error*dt;
+  intError = intError + error * dt;
   //Serial.println(intError);
   float ctrlSig = kp * counts2rad(error, countsPerRev) + kd * counts2rad(de_dt, countsPerRev) + ki * counts2rad(intError, countsPerRev);
   unsigned int PWMvalue = (int) constrain(abs(ctrlSig / 5 * 255), 0, speedLimit);
   //Serial.println(ctrlSig);
-  Serial.println(PWMvalue);
-  //Serial.println((int) constrain((ctrlSig / 5 * 255), 0, speedLimit));
+  //Serial.println(PWMvalue);
+
   if (ctrlSig < 0) {
     //analogWrite(DRIVER_PWM, 0);
     digitalWrite(DRIVER_DIR, HIGH);
@@ -254,6 +265,7 @@ void loop() {
   }
   //digitalWrite(DRIVER_DIR, LOW);
   analogWrite(DRIVER_PWM, PWMvalue);
+  //delayMicroseconds(5000);
 }
 
 long getCount() {
@@ -280,12 +292,12 @@ void Init_LS7366Rs(void)
   SPI.setClockDivider(SPI_CLOCK_DIV128);      // SPI at 125Khz (on 16Mhz clock)
   setSSEnc(DISABLE, 0);
   delay(100);
-  
+
   //Serial.print("\r\n");
   //Serial.print("\r\n");
 
   //initialize the 6
-  
+
   for (a = 1; a <= 6; a++)
   {
     //********
@@ -329,7 +341,7 @@ void Init_LS7366Rs(void)
     SPI.transfer(LOAD_CNTR);
     setSSEnc(DISABLE, 0);
 
-    
+
     //********
     //********
     setSSEnc(ENABLE, a);
@@ -481,7 +493,7 @@ unsigned int getChanEncoderReg(int opcode, int encoder)
 
 
 float currentSense() {
-  return (analogRead(DRIVER_CS) / 1023.0 * 5000.0 - 50.0)/20.0;
+  return (analogRead(DRIVER_CS) / 1023.0 * 5000.0 + 50.0) / 20.0;
 }
 
 void printVector(int * vec, int len) {
