@@ -233,7 +233,7 @@ void loop() {
   //Serial.print(currentCount);
   //Serial.print(" ");
   //Serial.println(desiredCount);
-  Serial.println(currentSense());
+  //Serial.println(currentSense());
   //Serial.println("A");
   //Serial.println(error);
   long start = micros();

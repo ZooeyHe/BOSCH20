@@ -14,10 +14,10 @@
 */
 
 // For Debugging
-int verbosity = 0; // Do not print trace
+//int verbosity = 0; // Do not print trace
 //int verbosity = 1; // Prints some:
 //int verbosity = 2; // Prints some:
-//int verbosity = 3; // Print all trace for debugging
+int verbosity = 3; // Print all trace for debugging
 
 // Hexapod Dimensions [cm, degrees]
 const float Rp =   15;
@@ -40,12 +40,13 @@ const float ki = 10.0; // [V/(rad*s)]
 const float kd = 0.08; // [V/(rad/s)]
 const float runsPerRead = 5; // number of control iterations per joystick reading
 const int speedLimit = 255;
+const byte startpin = 49;
 
 // Pins to Control BTS7960 Motor Driver
 const byte PWM[] = {     6,     7,     8,     9,    10,    11}; // Change first num to 2
 const byte DIR[] = {    22,    23,    24,    25,    26,    27}; // Direction PIN
 const byte CS[]  = {    A0,    A1,    A2,    A3,    A4,    A5}; // Current Sense Pin
-const byte MOTOR_ON[]    = {  true,  true,  true,  true,  true,  true}; // Switch motors on to run
+const byte MOTOR_ON[]    = {  1,  1,  1,  1,  1,  1}; // Switch motors on to run
 
 // Pins to Read Potentiometers on Joystick
 const byte JS_INPUT[] = {A8, A9, A10, A11, A12, A13};
@@ -203,8 +204,7 @@ void setup() {
   for (int i = 0; i < 6; i++) {
     pinMode(PWM[i], OUTPUT);
     pinMode(DIR[i], OUTPUT);
-    pinMode(CS[i],  OUTPUT);
-    enableMotor(i);
+    pinMode(CS[i],  INPUT);
   }
 
   if (verbosity > 1) {
@@ -225,6 +225,7 @@ void setup() {
   digitalWrite(nSS_ENC_A0_pin, HIGH);
   pinMode(DFLAG_pin, INPUT);
   pinMode(LFLAG_pin, INPUT_PULLUP);
+  pinMode(startpin, INPUT_PULLUP);
 
   Init_LS7366Rs();
 
@@ -252,6 +253,7 @@ void setup() {
   Serial.println("Press the start button to continue");
   
   // Wait for the start pin press to continue
+  Serial.println(digitalRead(startpin));
   while (digitalRead(startpin) == HIGH) {
     delay(10);
   }
@@ -271,7 +273,8 @@ void loop() {
   getDesiredEncoderCounts(desiredCounts);
 
   if (verbosity > 2) {
-    printVector(currentCounts, 6);
+    //printVector(currentCounts, 6);
+    printVector(desiredCounts, 6);
   }
 
   // Runs the Loop Iterations
@@ -351,7 +354,11 @@ void getDesiredEncoderCounts(long * counts) {
     float M = 2 * a * (p[2] - baseSetup[m][2]);
     float N = 2 * a * ((p[0] - baseSetup[m][0]) * cos(baseSetup[m][3]) + (p[1] - baseSetup[m][1]) * sin(baseSetup[m][3]));
     float alpha = asin(L / sqrt(sq(M) + sq(N)) - atan(N / M));
-    counts[m] = alpha / 2 / PI * countsPerRev;
+    if (m % 2 == 0) // if odd
+      counts[m] = alpha / 2 / PI * countsPerRev;
+    else
+      counts[m] = -alpha/ 2 / PI * countsPerRev;
+      
   }
 }
 
@@ -682,14 +689,10 @@ void printVector(long * vec, int len) {
 }
 
 // MOTOR CONTROL FUNCTIONS
-void enableMotor(int i) {
-  digitalWrite(REN_OUTPUT[i], HIGH);
-  digitalWrite(LEN_OUTPUT[i], HIGH);
-}
 
 void disableMotor(int i) {
-  digitalWrite(REN_OUTPUT[i], LOW);
-  digitalWrite(LEN_OUTPUT[i], LOW);
+  digitalWrite(PWM[i], LOW);
+  digitalWrite(DIR[i], LOW);
 }
 
 
