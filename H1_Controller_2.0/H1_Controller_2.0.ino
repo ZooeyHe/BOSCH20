@@ -1,23 +1,23 @@
 #include <SPI.h>
 /*
-   H1_Controller takes a joystick's input
+   H1_Controller takes a joystick's input.
    ==========================================
    Project: JHU BOSCH20 Senior Design
    Description: Control a H1-design hexapod using joysticks to
       to input desired positions
    Author: Zhuohong (Zooey) He
-   Date: 11.21.2019
+   Date: 02.14.2020
    ==========================================
-   NOTE: For use on an Arduino Mega, LS7633 Shield, Datalogger Shield
+   NOTE: For use on an Arduino Mega, LS7633 Shield, Datalogger Shield, and Pololu G2 24v21 Drivers
    make sure to do "Sketch->Include Library-> Add .ZIP Library" and
    find the MatrixMath.zip file
 */
 
 // For Debugging
-//int verbosity = 0; // Do not print trace
+int verbosity = 0; // Do not print trace
 //int verbosity = 1; // Prints some:
 //int verbosity = 2; // Prints some:
-int verbosity = 3; // Print all trace for debugging
+//int verbosity = 3; // Print all trace for debugging
 
 // Hexapod Dimensions [cm, degrees]
 const float Rp =   15;
@@ -38,41 +38,34 @@ float motorAngleLimits[] =  { -30, 90};
 const float kp = 9.5; // [V/rad]
 const float ki = 10.0; // [V/(rad*s)]
 const float kd = 0.08; // [V/(rad/s)]
-const float runsPerRead = 5; // number of control iterations per joystick reading
-const int speedLimit = 255;
-const byte startpin = 49;
+const float runsPerRead = 8; // number of control iterations per joystick reading
+const int   speedLimit = 255;
+const byte  startpin = 49;
 
 // Pins to Control BTS7960 Motor Driver
-const byte PWM[] = {     6,     7,     8,     9,    10,    11}; // Change first num to 2
-const byte DIR[] = {    22,    23,    24,    25,    26,    27}; // Direction PIN
-const byte CS[]  = {    A0,    A1,    A2,    A3,    A4,    A5}; // Current Sense Pin
-const byte MOTOR_ON[]    = {  1,  1,  1,  1,  1,  1}; // Switch motors on to run
+// MOTOR NUMBER:            1    2    3    4    5    6
+//                       ==============================
+const byte MOTOR_ON[] = {   1,   1,   1,   1,   1,   1}; // Switch motors on to run
+const byte PWM[]      = {   6,   7,   8,   9,  10,  11}; // Change first num to 2
+const byte DIR[]      = {  22,  23,  24,  25,  26,  27}; // Direction PIN
+const byte CS[]       = {  A0,  A1,  A2,  A3,  A4,  A5}; // Current Sense Pin
 
 // Pins to Read Potentiometers on Joystick
 const byte JS_INPUT[] = {A8, A9, A10, A11, A12, A13};
 
 // Encoder Specifications
-const int countsPerRev = 600; // if 4x multiply this number by 4
+const int quadCountMode = 4; // 1x, 2x, or 4x
+const int countsPerRev = 600 * quadCountMode;
 
 // Variables that we update while running
-long desiredCounts[6];
-long currentCounts[6];
-long lastFinish;
-long lastCounts[6];
-long error[6];
+long desiredCounts[6], currentCounts[6], lastCounts[6], error[6], lastError[6], lastStart[6];
 float intError[6];
-long lastError[6];
-long lastStart[6];
 
-// Platform Pin Positions wrt Platform Coordinates {x, y, z, thz}
-float platformSetup[6][4];
-
-// Base Motor Positions wrt Base Coordinates {x, y, z, thz}
-float baseSetup[6][4];
+float platformSetup[6][4];  // Platform Pin Positions wrt Platform Coordinates {x, y, z, thz}
+float baseSetup[6][4];      // Base Motor Positions wrt Base Coordinates {x, y, z, thz}
 
 #define ENABLE    1
 #define DISABLE   0
-
 #define NQUAD     0x00 //non-quadrature mode
 #define QUADRX1   0x01 //X1 quadrature mode
 #define QUADRX2   0x02 //X2 quadrature mode
@@ -125,73 +118,31 @@ float baseSetup[6][4];
 #define LOAD_OTR      0xE4
 
 //the lines are used by 74HC138 chip to select the cable select lines
-int nSS_ENC_A2_pin = 42;//C  A2
-int nSS_ENC_A1_pin = 41; //B  A1
-int nSS_ENC_A0_pin = 40; //A  A0
-
-//CLK Select DFLAG DF-F
-int CLK_SEL_DFAG_pin = 38;
-
-//Enable ENC_SS
-int EN_ENC_SS_pin = 39;
-
-//Blue LED
-int LED_ACT_pin = 45;
-
-//DFLAG
-int DFLAG_pin = 3;
-
-//LFLAG
-int LFLAG_pin = 2;
+int nSS_ENC_A2_pin = 42;    //C  A2
+int nSS_ENC_A1_pin = 41;    //B  A1
+int nSS_ENC_A0_pin = 40;    //A  A0
+int CLK_SEL_DFAG_pin = 38;  //CLK Select DFLAG DF-F
+int EN_ENC_SS_pin = 39;     //Enable ENC_SS
+int LED_ACT_pin = 45;       //Blue LED
+int DFLAG_pin = 3;          //DFLAG
+int LFLAG_pin = 2;          //LFLAG
 
 #define Slave_Select_Low PORTB &= ~(1 << PB4)
 #define Slave_Select_High PORTB |= (1 << PB4)
 
-//function prototypes
-void blinkActLed(void);
-long getChanEncoderValue(int encoder);
-unsigned int getChanEncoderReg(int opcode, int encoder);
-void rstEncCnt(int encoder);
-void setSSEnc(bool enable, int encoder);
-void clearStrReg(int encoder);
-void setSSEncCtrlBits(int value);
-void Init_LS7366Rs(void);
-
-void setDFlagChMux(int encoder);
-
-void loadRstReg(unsigned char op_code);
-void writeSingleByte(unsigned char op_code, unsigned char data);
-unsigned char readSingleByte(unsigned char op_code);
-
 //Global Variables
-int IsrDFlag;
-int DFlagCh;
-int IsrLFlag;
+int IsrDFlag, DFlagCh, IsrLFlag;
 int LFlagCnt[6];
 
-
+//=============================SETUP==================================
 void setup() {
   // Setting Up Pins
   Serial.begin(38400);
   if (verbosity > 0) {
     Serial.println("... Setting Up ...");
   }
-  pinMode(A8,  INPUT);
-  pinMode(A9,  INPUT);
-  pinMode(A10, INPUT);
-  pinMode(A11, INPUT);
-  pinMode(A12, INPUT);
-  pinMode(A13, INPUT);
-
-  int myEraser = 7;
-  int myPrescaler = 1;
-  TCCR4B &= ~myEraser; //Pins 8, 7, 6
-  TCCR2B &= ~myEraser; //Pins 10, 9
-  TCCR1B &= ~myEraser; //Pins 11, 12
-
-  TCCR4B |= myPrescaler;
-  TCCR2B |= myPrescaler;
-  TCCR1B |= myPrescaler;
+  initJoystickPins();
+  modifyPWMfrequency(1);
 
   if (verbosity > 0) {
     Serial.println("... Finished Setting Up Joystick Input ...");
@@ -201,34 +152,22 @@ void setup() {
     Serial.println("... Current Desired Position (Counts) is ...");
     printVector(desiredCounts, 6);
   }
-  for (int i = 0; i < 6; i++) {
-    pinMode(PWM[i], OUTPUT);
-    pinMode(DIR[i], OUTPUT);
-    pinMode(CS[i],  INPUT);
-  }
 
+  initMotorPins();
   if (verbosity > 1) {
-    Serial.println("... Finished Setting Up Motor Control ...");
+    Serial.println("... Finished Setting Up Motor Pins ...");
   }
-
-  pinMode(LED_ACT_pin, OUTPUT);
-  pinMode(CLK_SEL_DFAG_pin, OUTPUT);
-  pinMode(EN_ENC_SS_pin, OUTPUT);
-  pinMode(nSS_ENC_A2_pin, OUTPUT);
-  pinMode(nSS_ENC_A1_pin, OUTPUT);
-  pinMode(nSS_ENC_A0_pin, OUTPUT);
-  digitalWrite(LED_ACT_pin, LOW);
-  digitalWrite(CLK_SEL_DFAG_pin, LOW);
-  digitalWrite(EN_ENC_SS_pin, LOW);
-  digitalWrite(nSS_ENC_A2_pin, HIGH);
-  digitalWrite(nSS_ENC_A1_pin, HIGH);
-  digitalWrite(nSS_ENC_A0_pin, HIGH);
-  pinMode(DFLAG_pin, INPUT);
-  pinMode(LFLAG_pin, INPUT_PULLUP);
+  
+  initCounterPins();
+  Serial.println("Press the start button to continue");
   pinMode(startpin, INPUT_PULLUP);
+  while (digitalRead(startpin) == HIGH) {
+    delay(10);
+  }
+  Serial.println("... Starting ...");
+  delay(500);
 
   Init_LS7366Rs();
-
   if (verbosity > 1) {
     Serial.println("... Finished Setting Up Encoder Shield ...");
   }
@@ -250,14 +189,6 @@ void setup() {
     Serial.println("... Finished Performing Initial Calculations ...");
   }
 
-  Serial.println("Press the start button to continue");
-  
-  // Wait for the start pin press to continue
-  Serial.println(digitalRead(startpin));
-  while (digitalRead(startpin) == HIGH) {
-    delay(10);
-  }
-
   for (int m = 0; m < 6; m++) {
     lastStart[m] = micros();
     error[m] = 0;
@@ -268,23 +199,23 @@ void setup() {
   }
 }
 
-
+//=============================LOOP==================================
 void loop() {
   getDesiredEncoderCounts(desiredCounts);
-
   if (verbosity > 2) {
-    //printVector(currentCounts, 6);
-    printVector(desiredCounts, 6);
+    printVector(currentCounts, 6);
+    //printVector(desiredCounts, 6);
   }
 
   // Runs the Loop Iterations
   for (int n = 0; n < runsPerRead; n++) {
-    //printVector(error, 6);
-
     // Handle all 6 motors
     for (int m = 0; m < 6; m++) {
       if (MOTOR_ON[m] == false) {
         continue;
+      }
+      if (digitalRead(startpin) == LOW) {
+        SystemShutDown();
       }
 
       long start = micros();
@@ -293,28 +224,25 @@ void loop() {
       lastStart[m] = start;
 
       currentCounts[m] = getCount(m);
+      if (abs(currentCounts[m]) > 90 / 360.0 * countsPerRev) {
+        SystemShutDown();
+      }
+      
       error[m] = desiredCounts[m] - currentCounts[m];
       long derror = error[m] - lastError[m];
       lastError[m] = error[m];
-
       float de_dt = derror * 1.0 / dt;
-
       intError[m] = intError[m] + error[m] * dt;
 
       float ctrlSig = kp * counts2rad(error[m], countsPerRev) + kd * counts2rad(de_dt, countsPerRev) + ki * counts2rad(intError[m], countsPerRev);
-      //Serial.print(ctrlSig);
-      //Serial.print(" ");
       unsigned int PWMvalue = (int) constrain(abs(ctrlSig / 5 * 255), 0, speedLimit); // Constrained for safety, usually goes to 255
-
       if (ctrlSig < 0) {
         digitalWrite(DIR[m], HIGH);
       } else if (ctrlSig > 0) {
         digitalWrite(DIR[m], LOW);
       }
-
       analogWrite(PWM[m], PWMvalue);
     }
-    //Serial.println();
   }
 }
 
@@ -357,8 +285,7 @@ void getDesiredEncoderCounts(long * counts) {
     if (m % 2 == 0) // if odd
       counts[m] = alpha / 2 / PI * countsPerRev;
     else
-      counts[m] = -alpha/ 2 / PI * countsPerRev;
-      
+      counts[m] = -alpha / 2 / PI * countsPerRev;
   }
 }
 
@@ -415,7 +342,7 @@ void Init_LS7366Rs(void)
     //********
     setSSEnc(ENABLE, a);
     SPI.transfer(WRITE_MDR0);// Select MDR0 | WR register
-    SPI.transfer(FILTER_2 | DISABLE_INDX | FREE_RUN | QUADRX1); // Filter clock division factor = 1 || Asynchronous Index ||
+    SPI.transfer(FILTER_2 | DISABLE_INDX | FREE_RUN | QUADRX4); // Filter clock division factor = 1 || Asynchronous Index ||
     // disable index || free-running count mode || x4 quadrature count mode
     setSSEnc(DISABLE, 0);
 
@@ -690,13 +617,65 @@ void printVector(long * vec, int len) {
 
 // MOTOR CONTROL FUNCTIONS
 
+void SystemShutDown() {
+  Serial.println("... INITIATING SHUTDOWN SEQUENCE ...");
+  for (int i = 0; i < 6; i++) {
+    disableMotor(i);
+  }
+  Serial.println("... SYSTEM POWER OFF ...");
+  Serial.println("Click reset button to restart program.");
+  while (true) {
+    delay(10);
+  }
+}
+
 void disableMotor(int i) {
   digitalWrite(PWM[i], LOW);
   digitalWrite(DIR[i], LOW);
 }
 
+void modifyPWMfrequency(int myPrescaler) {
+  int myEraser = 7;
+  TCCR4B &= ~myEraser; //Pins 8, 7, 6
+  TCCR2B &= ~myEraser; //Pins 10, 9
+  TCCR1B &= ~myEraser; //Pins 11, 12
+  TCCR4B |= myPrescaler;
+  TCCR2B |= myPrescaler;
+  TCCR1B |= myPrescaler;
+}
 
 // FUNCTIONS USED TO SET UP THE SYSTEM
+void initJoystickPins() {
+  for (int i = 0; i < 6; i++) {
+    pinMode(JS_INPUT[i], INPUT);
+  }
+}
+
+void initMotorPins() {
+  for (int i = 0; i < 6; i++) {
+    pinMode(PWM[i], OUTPUT);
+    pinMode(DIR[i], OUTPUT);
+    pinMode(CS[i],  INPUT);
+  }
+}
+
+void initCounterPins() {
+  pinMode(LED_ACT_pin, OUTPUT);
+  pinMode(CLK_SEL_DFAG_pin, OUTPUT);
+  pinMode(EN_ENC_SS_pin, OUTPUT);
+  pinMode(nSS_ENC_A2_pin, OUTPUT);
+  pinMode(nSS_ENC_A1_pin, OUTPUT);
+  pinMode(nSS_ENC_A0_pin, OUTPUT);
+  digitalWrite(LED_ACT_pin, LOW);
+  digitalWrite(CLK_SEL_DFAG_pin, LOW);
+  digitalWrite(EN_ENC_SS_pin, LOW);
+  digitalWrite(nSS_ENC_A2_pin, HIGH);
+  digitalWrite(nSS_ENC_A1_pin, HIGH);
+  digitalWrite(nSS_ENC_A0_pin, HIGH);
+  pinMode(DFLAG_pin, INPUT);
+  pinMode(LFLAG_pin, INPUT_PULLUP);
+}
+
 void getPinsWrtPlatform() {
   float majp = 2.0 * PI / 3.0 - minp;
   float theta = majp / 2.0;
