@@ -1,16 +1,15 @@
 #include <SPI.h>
 /*
-   H1_StepMove takes a platform position command from the .
+   H1_StepMove takes a platform position command from the serial window.
    ==========================================
    Project: JHU BOSCH20 Senior Design
-   Description: Control a H1-design hexapod using joysticks to
+   Description: Control a H1-design hexapod using the serial
       to input desired positions
    Author: Zhuohong (Zooey) He
-   Date: 02.14.2020
+   Date: 02.20.2020
    ==========================================
-   NOTE: For use on an Arduino Mega, LS7633 Shield, Datalogger Shield, and Pololu G2 24v21 Drivers
-   make sure to do "Sketch->Include Library-> Add .ZIP Library" and
-   find the MatrixMath.zip file
+   NOTE: For use on an Arduino Mega, LS7633 Shield, Datalogger Shield, and Pololu G2 24v21 Drivers.
+   Use {a,s,d,f,g,h} to increment in the 6DOF and {z,x,c,v,b,n} to decrement
 */
 
 // For Debugging
@@ -29,6 +28,7 @@ const float s =    18.0;
 
 // Hexapod Motion Envelope Limitations {x, y, z, thx, thy, thz} [cm, degrees]
 float platformLimits[] = {10, 10, 5, 10, 10, 5};
+float desiredPlatformPosition[] = {0, 0, 23, 0, 0 , 0};
 const float zorigin = 23;
 
 // Hexapod Limitations [degrees]
@@ -54,6 +54,11 @@ const byte CS[]       = {  A0,  A1,  A2,  A3,  A4,  A5}; // Current Sense Pin
 const byte JS_INPUT[] =   { A8,  A9, A10, A11, A12, A13};
 // This is the one direction analogRead range for each of the joysticks, 512 if full
 const byte JS_MAPPING[] = {120, 120, 180, 120, 120, 180};
+
+// Step Sizes for
+float STEP_SIZE[] =  {  1,  1,  1,  1,  1,  1}; // cm or degree depending on direction
+const char POS_STEP_CMDS[] =  {'a', 's', 'd', 'f', 'g', 'h'};
+const char NEG_STEP_CMDS[] =  {'z', 'x', 'c', 'v', 'b', 'n'};
 
 
 // Encoder Specifications
@@ -151,7 +156,7 @@ void setup() {
     Serial.println("... Finished Setting Up Joystick Input ...");
   }
   if (verbosity > 1) {
-    getDesiredEncoderCounts(desiredCounts);
+    updateDesiredEncoderCounts(desiredCounts);
     Serial.println("... Current Desired Position (Counts) is ...");
     printVector(desiredCounts, 6);
   }
@@ -179,6 +184,9 @@ void setup() {
   platformLimits[3] = deg2rad(platformLimits[3]);
   platformLimits[4] = deg2rad(platformLimits[4]);
   platformLimits[5] = deg2rad(platformLimits[5]);
+  STEP_SIZE[3] = deg2rad(STEP_SIZE[3]);
+  STEP_SIZE[4] = deg2rad(STEP_SIZE[4]);
+  STEP_SIZE[5] = deg2rad(STEP_SIZE[5]);
   motorAngleLimits[0] = deg2rad(motorAngleLimits[0]);
   motorAngleLimits[1] = deg2rad(motorAngleLimits[1]);
   minp = deg2rad(minp);
@@ -200,12 +208,16 @@ void setup() {
   if (verbosity > 0) {
     Serial.println("... Finished Setup, Beginning Loop Now ...");
   }
+  Serial.println("... STARTED LOOP ...");
 }
 
 //=============================LOOP==================================
 void loop() {
-  if (getDesiredEncoderCounts(desiredCounts) == 2) {
-    Serial.println("... IMPOSSIBLE PLATFORM POSITION ...");
+  int res = updateDesiredEncoderCounts(desiredCounts);
+  if (res == 0) {
+    printVector(desiredCounts, 6);
+  } else if(res == 2) {
+    Serial.println("... IMPOSSIBLE PLATFORM POSTITION ...");
   }
   if (verbosity > 2) {
     //printVector(currentCounts, 6);
@@ -284,31 +296,49 @@ long getCount(int encoder) {
 /*
    Calculate the desired encoder counts from desired platform position
 */
-int getDesiredEncoderCounts(long * counts) {
-  float desiredPlatformPosition[6];
-  float rot[3][3];
-  float p[3];             //NOTE: p is the platform pin in the base frame
-  getDesiredPlatformPosition(desiredPlatformPosition);
-  //printVector(desiredPlatformPosition, 6);
-  calculateRotationMatrix(rot, desiredPlatformPosition);
-  for (int m = 0; m < 6; m++) {
-    calculatePlatformPinWrtBase(p, desiredPlatformPosition, rot, platformSetup[m]);
-    float linkageVec[3];
-    float effPistonLen = mag(linkageVec);
-    float L = sq(effPistonLen) - (sq(s) - sq(a));
-    float M = 2 * a * (p[2] - baseSetup[m][2]);
-    float N = 2 * a * ((p[0] - baseSetup[m][0]) * cos(baseSetup[m][3]) + (p[1] - baseSetup[m][1]) * sin(baseSetup[m][3]));
-    float alpha = asin(L / sqrt(sq(M) + sq(N)) - atan(N / M));
-    if (isnan(alpha)) {
-      return 2;
-    } else {
-      if (m % 2 == 0) // if odd
-        counts[m] = alpha / 2 / PI * countsPerRev;
-      else
-        counts[m] = -alpha / 2 / PI * countsPerRev;
+int updateDesiredEncoderCounts(long * counts) {
+  if (Serial.available()) {
+    char command = Serial.read();
+    boolean validChar = false;
+    for (int i = 0; i < 6; i++) {
+      if (command == POS_STEP_CMDS[i]) {
+        desiredPlatformPosition[i] += STEP_SIZE[i];
+        validChar = true;
+        break;
+      } else if (command == NEG_STEP_CMDS[i]) {
+        desiredPlatformPosition[i] -= STEP_SIZE[i];
+        validChar = true;
+        break;
+      }
     }
+
+    if (!validChar) {
+      return 1;
+    }
+
+    float rot[3][3];
+    float p[3];
+    calculateRotationMatrix(rot, desiredPlatformPosition);
+    for (int m = 0; m < 6; m++) {
+      calculatePlatformPinWrtBase(p, desiredPlatformPosition, rot, platformSetup[m]);
+      float linkageVec[3];
+      float effPistonLen = mag(linkageVec);
+      float L = sq(effPistonLen) - (sq(s) - sq(a));
+      float M = 2 * a * (p[2] - baseSetup[m][2]);
+      float N = 2 * a * ((p[0] - baseSetup[m][0]) * cos(baseSetup[m][3]) + (p[1] - baseSetup[m][1]) * sin(baseSetup[m][3]));
+      float alpha = asin(L / sqrt(sq(M) + sq(N)) - atan(N / M));
+      if (isnan(alpha)) {
+        return 2;
+      } else {
+        if (m % 2 == 0) // if odd
+          counts[m] = alpha / 2 / PI * countsPerRev;
+        else
+          counts[m] = -alpha / 2 / PI * countsPerRev;
+      }
+    }
+    return 0;
   }
-  return 0;
+  return 1;
 }
 
 /*
