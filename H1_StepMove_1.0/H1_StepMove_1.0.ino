@@ -156,7 +156,7 @@ void setup() {
     Serial.println("... Finished Setting Up Joystick Input ...");
   }
   if (verbosity > 1) {
-    updateDesiredEncoderCounts(desiredCounts);
+    updateDesiredEncoderCounts(desiredCounts, true);
     Serial.println("... Current Desired Position (Counts) is ...");
     printVector(desiredCounts, 6);
   }
@@ -208,12 +208,12 @@ void setup() {
   if (verbosity > 0) {
     Serial.println("... Finished Setup, Beginning Loop Now ...");
   }
-  Serial.println("... STARTED LOOP ...");
+  updateDesiredEncoderCounts(desiredCounts, true);
 }
 
 //=============================LOOP==================================
 void loop() {
-  int res = updateDesiredEncoderCounts(desiredCounts);
+  int res = updateDesiredEncoderCounts(desiredCounts, false);
   if (res == 0) {
     printVector(desiredCounts, 6);
   } else if(res == 2) {
@@ -296,8 +296,8 @@ long getCount(int encoder) {
 /*
    Calculate the desired encoder counts from desired platform position
 */
-int updateDesiredEncoderCounts(long * counts) {
-  if (Serial.available()) {
+int updateDesiredEncoderCounts(long * counts, bool forceUpdate) {
+  if (Serial.available() || forceUpdate) {
     char command = Serial.read();
     boolean validChar = false;
     for (int i = 0; i < 6; i++) {
@@ -307,6 +307,9 @@ int updateDesiredEncoderCounts(long * counts) {
         break;
       } else if (command == NEG_STEP_CMDS[i]) {
         desiredPlatformPosition[i] -= STEP_SIZE[i];
+        validChar = true;
+        break;
+      } else if (forceUpdate) {
         validChar = true;
         break;
       }
