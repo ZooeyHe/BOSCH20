@@ -28,8 +28,8 @@ const float s =    18.0;
 
 // Hexapod Motion Envelope Limitations {x, y, z, thx, thy, thz} [cm, degrees]
 float platformLimits[] = {10, 10, 5, 10, 10, 5};
-float desiredPlatformPosition[] = {0, 0, 23, 0, 0 , 0};
-const float zorigin = 23;
+float desiredPlatformPosition[] = {0, 0, 20, 0, 0 , 0};
+const float zorigin = 20;
 
 // Hexapod Limitations [degrees]
 float motorAngleLimits[] =  { -30, 90};
