@@ -49,6 +49,7 @@ const byte MOTOR_ON[] = {   1,   1,   1,   1,   1,   1}; // Switch motors on to 
 const byte PWM[]      = {   6,   7,   8,   9,  10,  11}; // Change first num to 2
 const byte DIR[]      = {  22,  23,  24,  25,  26,  27}; // Direction PIN
 const byte CS[]       = {  A0,  A1,  A2,  A3,  A4,  A5}; // Current Sense Pin
+const byte SWITCHES[] = {  30,  31,  32,  33,  34,  35}; // Microswitches used for startup calibrations
 
 // Pins to Read Potentiometers on Joystick
 const byte JS_INPUT[] =   { A8,  A9, A10, A11, A12, A13};
@@ -59,6 +60,7 @@ const byte JS_MAPPING[] = {120, 120, 180, 120, 120, 180};
 // Encoder Specifications
 const int quadCountMode = 4; // 1x, 2x, or 4x
 const int countsPerRev = 600 * quadCountMode;
+const float microswitchAngle = -10;
 
 // Variables that we update while running
 long desiredCounts[6], currentCounts[6], lastCounts[6], error[6], lastError[6], lastStart[6];
@@ -192,10 +194,20 @@ void setup() {
     Serial.println("... Finished Performing Initial Calculations ...");
   }
 
-  for (int m = 0; m < 6; m++) {
-    lastStart[m] = micros();
-    error[m] = 0;
+  Serial.println("Press the start button to start calibration");
+  pinMode(startpin, INPUT_PULLUP);
+  while (digitalRead(startpin) == HIGH) {
+    delay(10);
   }
+
+  delay(500);
+
+  Serial.println("... Performing Calibration ...");
+
+  calibration_procedure();
+
+  Serial.println("... Calibration finished, control is now given to the user ...");
+
 
   if (verbosity > 0) {
     Serial.println("... Finished Setup, Beginning Loop Now ...");
@@ -212,54 +224,7 @@ void loop() {
     //printVector(desiredCounts, 6);
   }
 
-  //float curr[6];
-  //currentSenseAll(curr);
-  //printVector(curr, 6);
-  //Serial.print(curr[0] + curr[1] + curr[2]);
-  //Serial.print(",");
-  //Serial.println(curr[3] + curr[4] + curr[5]);
-
-  // Runs the Loop Iterations
-  for (int n = 0; n < runsPerRead; n++) {
-    // Handle all 6 motors
-    for (int m = 0; m < 6; m++) {
-      if (MOTOR_ON[m] == false) {
-        continue;
-      }
-      if (digitalRead(startpin) == LOW) {
-        SystemShutDown();
-      }
-
-      long start = micros();
-      float dt = start - lastStart[m];
-      dt = dt / 1000000.0;
-      lastStart[m] = start;
-
-      currentCounts[m] = getCount(m);
-      if (abs(currentCounts[m]) > 90 / 360.0 * countsPerRev) {
-        SystemShutDown();
-      }
-
-      error[m] = desiredCounts[m] - currentCounts[m];
-      long derror = error[m] - lastError[m];
-      lastError[m] = error[m];
-      float de_dt = derror * 1.0 / dt;
-      intError[m] = intError[m] + error[m] * dt;
-
-      float ctrlSig = kp * counts2rad(error[m], countsPerRev) + kd * counts2rad(de_dt, countsPerRev) + ki * counts2rad(intError[m], countsPerRev);
-      unsigned int PWMvalue = (int) constrain(abs(ctrlSig / 5 * 255), 0, speedLimit); // Constrained for safety, usually goes to 255
-      if (ctrlSig < 0) {
-        digitalWrite(DIR[m], HIGH);
-      } else if (ctrlSig > 0) {
-        digitalWrite(DIR[m], LOW);
-      }
-      if (isnan(ctrlSig)) {
-        analogWrite(PWM[m], 0);
-      } else {
-        analogWrite(PWM[m], PWMvalue);
-      }
-    }
-  }
+  moveToDesired();
 }
 
 void getCurrentCounts(long counts[6]) {
@@ -325,7 +290,6 @@ void getDesiredPlatformPosition(float * pos) {
   }
 }
 
-
 /*
    Read's a joystick's value and returns a value from -1.0 to 1.0
 */
@@ -348,6 +312,121 @@ void currentSenseAll(float curr[6]) {
     curr[i] = currentSense(CS[i]);
   }
 }
+
+int calibration_procedure() {
+  initCalibrationPins();
+
+  boolean calibrated = false;
+  boolean motorCalibrated[] = {false, false, false, false, false, false};
+  unsigned long caliStart = micros();
+  float popAngle = 10; // This is the angle that the motor arms move from initial position (deg)
+  long countsToResetTo = microswitchAngle / 360.0 * countsPerRev;
+  //Calibration Constants
+  long mask = 0xFF;
+
+  for (int m = 0; m < 6; m++) {
+    lastStart[m] = micros();
+    error[m] = 0;
+  }
+
+  // Calibration Process
+  // STEP 1: Pop the motor angles up, so that they leave
+  while (calibrated == false) {
+    if (micros() - caliStart < 5000000) {
+      desiredCounts[0] = -popAngle / 360.0 * countsPerRev;
+      desiredCounts[1] = popAngle / 360.0 * countsPerRev;
+      desiredCounts[2] = -popAngle / 360.0 * countsPerRev;
+      desiredCounts[3] = popAngle / 360.0 * countsPerRev;
+      desiredCounts[4] = -popAngle / 360.0 * countsPerRev;
+      desiredCounts[5] = popAngle / 360.0 * countsPerRev;
+      printVector(desiredCounts, 6);
+      printVector(currentCounts, 6);
+      moveToDesired();
+    } else {
+      printVector(motorCalibrated, 6);
+      for (int i = 0; i < 6; i++) {
+        while (motorCalibrated[i] == false) {
+          desiredCounts[i] += pow(-1, i); // changes the direction for even motors
+          moveToDesired();
+          if (digitalRead(SWITCHES[i]) == LOW) {
+            // Reset the Encoder Value to a preset value
+            long writeCounts = countsToResetTo * -1 * pow(-1, i);
+            byte one   =  (writeCounts >>  0) & mask;
+            byte two   =  (writeCounts >>  8) & mask;
+            byte three =  (writeCounts >> 16) & mask;
+            byte four  =  (writeCounts >> 24) & mask;
+
+            setSSEnc(ENABLE, i + 1);
+            SPI.transfer(WRITE_DTR);// Select DTR | WR register
+            SPI.transfer(four);// DTR MSB
+            SPI.transfer(three);// DTR
+            SPI.transfer(two);// DTR
+            SPI.transfer(one);// DTR LS
+            setSSEnc(DISABLE, 0);
+            setSSEnc(ENABLE, i + 1);
+            SPI.transfer(LOAD_CNTR);
+            setSSEnc(DISABLE, 0);
+
+            intError[i] == 0;
+            desiredCounts[i] = writeCounts;
+            lastError[i] = 0;
+            lastStart[i] = micros();
+
+            motorCalibrated[i] = true;
+          }
+        }
+      }
+      calibrated = true;
+    }
+  }
+}
+
+
+int moveToDesired() {
+  for (int n = 0; n < runsPerRead; n++) {
+    // Handle all 6 motors
+    for (int m = 0; m < 6; m++) {
+      if (MOTOR_ON[m] == false) {
+        continue;
+      }
+      if (digitalRead(startpin) == LOW) {
+        SystemShutDown();
+      }
+
+      long start = micros();
+      float dt = start - lastStart[m];
+      dt = dt / 1000000.0;
+      lastStart[m] = start;
+
+      currentCounts[m] = getCount(m);
+      if (abs(currentCounts[m]) > 90 / 360.0 * countsPerRev) {
+        SystemShutDown();
+      }
+
+      error[m] = desiredCounts[m] - currentCounts[m];
+      long derror = error[m] - lastError[m];
+      lastError[m] = error[m];
+      float de_dt = derror * 1.0 / dt;
+      intError[m] = intError[m] + error[m] * dt;
+
+      float ctrlSig = kp * counts2rad(error[m], countsPerRev) + kd * counts2rad(de_dt, countsPerRev) + ki * counts2rad(intError[m], countsPerRev);
+      unsigned int PWMvalue = (int) constrain(abs(ctrlSig / 5 * 255), 0, speedLimit); // Constrained for safety, usually goes to 255
+      if (ctrlSig < 0) {
+        digitalWrite(DIR[m], HIGH);
+      } else if (ctrlSig > 0) {
+        digitalWrite(DIR[m], LOW);
+      }
+      if (isnan(ctrlSig)) {
+        // The motor brakes if the command is invalid
+        digitalWrite(DIR[m], LOW);
+        analogWrite(PWM[m], 0);
+      } else {
+        analogWrite(PWM[m], PWMvalue);
+      }
+    }
+  }
+}
+
 
 // HELPER FUNCTIONS
 void Init_LS7366Rs(void)
@@ -643,6 +722,18 @@ void printVector(long * vec, int len) {
   Serial.println();
 }
 
+void printVector(boolean * vec, int len) {
+  for (int i = 0; i < len; i++) {
+    if (vec[i]) {
+      Serial.print("true");
+    } else {
+      Serial.print("false");
+    }
+    Serial.print("\t");
+  }
+  Serial.println();
+}
+
 // MOTOR CONTROL FUNCTIONS
 
 void SystemShutDown() {
@@ -688,6 +779,12 @@ void initMotorPins() {
     pinMode(PWM[i], OUTPUT);
     pinMode(DIR[i], OUTPUT);
     pinMode(CS[i],  INPUT);
+  }
+}
+
+void initCalibrationPins() {
+  for (int i = 0; i < 6; i++) {
+    pinMode(SWITCHES[i], INPUT_PULLUP);
   }
 }
 
