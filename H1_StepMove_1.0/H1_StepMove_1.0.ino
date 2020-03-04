@@ -19,17 +19,17 @@ int verbosity = 0; // Do not print trace
 //int verbosity = 3; // Print all trace for debugging
 
 // Hexapod Dimensions [cm, degrees]
-const float Rp =   15;
+const float Rp =   14.9;
 float       minp = 50;
-const float Rb =   18;
+const float Rb =   17.6;
 float       minb = 50;
-const float a =    6.0;
-const float s =    18.0;
+const float a =    6.5;
+const float s =    20.3;
 
 // Hexapod Motion Envelope Limitations {x, y, z, thx, thy, thz} [cm, degrees]
 float platformLimits[] = {10, 10, 5, 10, 10, 5};
-float desiredPlatformPosition[] = {0, 0, 20, 0, 0 , 0};
-const float zorigin = 20;
+float desiredPlatformPosition[] = {0, 0, 25, 0, 0 , 0};
+const float zorigin = 25;
 
 // Hexapod Limitations [degrees]
 float motorAngleLimits[] =  { -30, 90};
@@ -49,6 +49,7 @@ const byte MOTOR_ON[] = {   1,   1,   1,   1,   1,   1}; // Switch motors on to 
 const byte PWM[]      = {   6,   7,   8,   9,  10,  11}; // Change first num to 2
 const byte DIR[]      = {  22,  23,  24,  25,  26,  27}; // Direction PIN
 const byte CS[]       = {  A0,  A1,  A2,  A3,  A4,  A5}; // Current Sense Pin
+const byte SWITCHES[] = {  30,  31,  32,  33,  34,  35}; // Microswitches used for startup calibrations
 
 // Pins to Read Potentiometers on Joystick
 const byte JS_INPUT[] =   { A8,  A9, A10, A11, A12, A13};
@@ -64,6 +65,7 @@ const char NEG_STEP_CMDS[] =  {'z', 'x', 'c', 'v', 'b', 'n'};
 // Encoder Specifications
 const int quadCountMode = 4; // 1x, 2x, or 4x
 const int countsPerRev = 600 * quadCountMode;
+const float microswitchAngle = 16.8; //degrees
 
 // Variables that we update while running
 long desiredCounts[6], currentCounts[6], lastCounts[6], error[6], lastError[6], lastStart[6];
@@ -200,6 +202,19 @@ void setup() {
     Serial.println("... Finished Performing Initial Calculations ...");
   }
 
+  Serial.println("Press the start button to start calibration");
+  pinMode(startpin, INPUT_PULLUP);
+  while (digitalRead(startpin) == HIGH) {
+    delay(10);
+  }
+  delay(500);
+
+  Serial.println("... Peforming Calibration ...");
+
+  calibration_procedure();
+
+  Serial.println("... Calibration finished, handing control to user ...");
+
   for (int m = 0; m < 6; m++) {
     lastStart[m] = micros();
     error[m] = 0;
@@ -216,7 +231,7 @@ void loop() {
   int res = updateDesiredEncoderCounts(desiredCounts, false);
   if (res == 0) {
     printVector(desiredCounts, 6);
-  } else if(res == 2) {
+  } else if (res == 2) {
     Serial.println("... IMPOSSIBLE PLATFORM POSTITION ...");
   }
   if (verbosity > 2) {
